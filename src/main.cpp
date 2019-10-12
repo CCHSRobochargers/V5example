@@ -18,6 +18,7 @@
 // ---- END VEXCODE CONFIGURED DEVICES ----
 
 #include "vex.h"
+#include "vex_controller.h"
 
 using namespace vex;
 
@@ -32,7 +33,15 @@ motor_group RightDrive(RightDriveFront, RightDriveRear);
 // platform
 // 1.0 => external gear ratio (direct drive)
 drivetrain Drivetrain = drivetrain(LeftDrive, RightDrive,
-4.0 * M_PI, 12.0, 5.0, inches, 1.0);
+  4.0 * M_PI, 12.0, 5.0, inches, 1.0);
+
+typedef enum {Red, Blue} allianceSelType;
+const char *allianceText[] = {"Red", "Blue"};
+allianceSelType allianceSelect = Red;
+
+#define NUM_AUTO 5
+const char *autoText[NUM_AUTO] = {"None", "Big", "Small", "Big1", "Small1"};
+int autoSelect = 0;
 
 /*---------------------------------------------------------------------------*/
 /*                          Pre-Autonomous Functions                         */
@@ -45,8 +54,78 @@ drivetrain Drivetrain = drivetrain(LeftDrive, RightDrive,
 /*---------------------------------------------------------------------------*/
 
 void pre_auton(void) {
+  int sel = 0;
+  bool bLeft = false;
+  bool bRight = false;
+  bool bUp = false;
+  bool bDown = false;
+
   // Initializing Robot Configuration. DO NOT REMOVE!
   vexcodeInit();
+
+  // Select the autonomous routine to run
+  Controller1.rumble(rumbleShort);
+  wait(50, msec);
+
+  // Select the autonomous routine to run
+  while(!Controller1.ButtonA.pressing()) {
+    if ((!bUp && Controller1.ButtonUp.pressing()) ||
+        (!bDown && Controller1.ButtonDown.pressing())) {
+      if (sel == 0) {
+        sel = 1;
+      } else {
+        sel = 0;
+      }
+    }
+
+     if (sel == 0) {
+      if ((!bRight && Controller1.ButtonRight.pressing()) ||
+          (!bLeft && Controller1.ButtonLeft.pressing())) {
+        if (allianceSelect == Blue) {
+          allianceSelect = Red;
+        } else {
+          allianceSelect = Blue;
+        }
+      }
+    }
+    if (sel == 1) {
+      if (!bRight && Controller1.ButtonRight.pressing()) {
+        if (autoSelect == NUM_AUTO - 1) {
+          autoSelect = 0;
+        } else {
+          autoSelect++;
+        }
+      }
+      if (!bLeft && Controller1.ButtonLeft.pressing()) {
+        if (autoSelect == 0) {
+          autoSelect = NUM_AUTO - 1;
+        } else {
+          autoSelect--;
+        }
+      }
+    }
+
+    // Update the selection
+    Controller1.Screen.clearLine(3);
+    wait(50, msec);
+    if (sel == 0) {
+      Controller1.Screen.print("Alliance: %s", allianceText[allianceSelect]);
+    } else {
+      Controller1.Screen.print("Auto: %s", autoText[autoSelect]);
+    }
+
+    // Save the buttons for press detection
+    bUp = Controller1.ButtonUp.pressing();
+    bDown = Controller1.ButtonDown.pressing();
+    bRight = Controller1.ButtonRight.pressing();
+    bLeft = Controller1.ButtonLeft.pressing();
+
+    wait(50, msec);
+  }
+
+  Controller1.Screen.clearLine(3);
+  wait(50, msec);
+  Controller1.Screen.print("%s | %s", allianceText[allianceSelect], autoText[autoSelect]);
 
   // All activities that occur before the competition starts
   // Example: clearing encoders, setting servo positions, ...
@@ -84,7 +163,6 @@ void autonomous(void) {
 /*---------------------------------------------------------------------------*/
 
 void usercontrol(void) {
-
   // User control code here, inside the loop
   while (1) {
     // This is the main execution loop for the user control program.
