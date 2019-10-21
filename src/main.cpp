@@ -19,6 +19,7 @@
 
 #include "vex.h"
 #include "vex_controller.h"
+#include "field-250.h"  // Field graphic (250x250 pixels PNG)
 
 using namespace vex;
 
@@ -35,13 +36,46 @@ motor_group RightDrive(RightDriveFront, RightDriveRear);
 drivetrain Drivetrain = drivetrain(LeftDrive, RightDrive,
   4.0 * M_PI, 12.0, 5.0, inches, 1.0);
 
-typedef enum {Red, Blue} allianceSelType;
-const char *allianceText[] = {"Red", "Blue"};
-allianceSelType allianceSelect = Red;
+#define FIELD_GRAPHIC_WIDTH 250
+#define FIELD_GRAPHIC_HEIGHT 250
+#define BRAIN_SCREEN_WIDTH 480
+#define BRAIN_SCREEN_HEIGHT 272
+// Center on the X axis
+#define FIELD_LOC_X ((BRAIN_SCREEN_WIDTH / 2) - (FIELD_GRAPHIC_WIDTH / 2))
+// Put on the bottom on the Y axis
+#define FIELD_LOC_Y ((BRAIN_SCREEN_HEIGHT - 25) - FIELD_GRAPHIC_HEIGHT)
 
+typedef struct {
+  const char *label;
+  int x;
+  int y;
+  int width;
+  int height;
+} hotspotType;
+
+// The (0,0) origin of the screen is top left
 #define NUM_AUTO 5
-const char *autoText[NUM_AUTO] = {"None", "Big", "Small", "Big1", "Small1"};
+hotspotType autoHotspots[NUM_AUTO] = {
+  {"   None   ", (FIELD_GRAPHIC_HEIGHT / 2) - 25, (FIELD_GRAPHIC_WIDTH / 2) - 25, 50, 50},
+  {" Red Big  ", 0, 0, 50, 50},
+  {"Red Small ", 0, FIELD_GRAPHIC_WIDTH - 50, 50, 50},
+  {" Blue Big ", FIELD_GRAPHIC_HEIGHT - 50, 0, 50, 50},
+  {"Blue Small", FIELD_GRAPHIC_HEIGHT - 50, FIELD_GRAPHIC_WIDTH - 50, 50, 50},
+};
+
+// Which autonomous was selected (defaults to "none")
 int autoSelect = 0;
+
+// Button pressed (or not) math
+bool isPressed(int idx, int X, int Y)
+{
+  if ((X >= autoHotspots[idx].x) && (X <= autoHotspots[idx].x + autoHotspots[idx].width) &&
+      (Y >= autoHotspots[idx].y) && (Y <= autoHotspots[idx].y + autoHotspots[idx].width)) {
+    return true;
+  } else {
+    return false;
+  }
+}
 
 /*---------------------------------------------------------------------------*/
 /*                          Pre-Autonomous Functions                         */
@@ -54,83 +88,60 @@ int autoSelect = 0;
 /*---------------------------------------------------------------------------*/
 
 void pre_auton(void) {
-  int sel = 0;
-  bool bLeft = false;
-  bool bRight = false;
-  bool bUp = false;
-  bool bDown = false;
-
-  // Initializing Robot Configuration. DO NOT REMOVE!
-  vexcodeInit();
-
-  // Select the autonomous routine to run
-  Controller1.rumble(rumbleShort);
-  wait(50, msec);
-
-  // Select the autonomous routine to run
-  while(!Controller1.ButtonA.pressing()) {
-    if ((!bUp && Controller1.ButtonUp.pressing()) ||
-        (!bDown && Controller1.ButtonDown.pressing())) {
-      if (sel == 0) {
-        sel = 1;
-      } else {
-        sel = 0;
-      }
-    }
-
-     if (sel == 0) {
-      if ((!bRight && Controller1.ButtonRight.pressing()) ||
-          (!bLeft && Controller1.ButtonLeft.pressing())) {
-        if (allianceSelect == Blue) {
-          allianceSelect = Red;
-        } else {
-          allianceSelect = Blue;
-        }
-      }
-    }
-    if (sel == 1) {
-      if (!bRight && Controller1.ButtonRight.pressing()) {
-        if (autoSelect == NUM_AUTO - 1) {
-          autoSelect = 0;
-        } else {
-          autoSelect++;
-        }
-      }
-      if (!bLeft && Controller1.ButtonLeft.pressing()) {
-        if (autoSelect == 0) {
-          autoSelect = NUM_AUTO - 1;
-        } else {
-          autoSelect--;
-        }
-      }
-    }
-
-    // Update the selection
-    Controller1.Screen.clearLine(3);
-    wait(50, msec);
-    if (sel == 0) {
-      Controller1.Screen.print("Alliance: %s", allianceText[allianceSelect]);
-    } else {
-      Controller1.Screen.print("Auto: %s", autoText[autoSelect]);
-    }
-
-    // Save the buttons for press detection
-    bUp = Controller1.ButtonUp.pressing();
-    bDown = Controller1.ButtonDown.pressing();
-    bRight = Controller1.ButtonRight.pressing();
-    bLeft = Controller1.ButtonLeft.pressing();
-
-    wait(50, msec);
-  }
-
-  Controller1.Screen.clearLine(3);
-  wait(50, msec);
-  Controller1.Screen.print("%s | %s", allianceText[allianceSelect], autoText[autoSelect]);
-
+  int fingerX;
+  int fingerY;
   // All activities that occur before the competition starts
   // Example: clearing encoders, setting servo positions, ...
-  Drivetrain.setDriveVelocity(60.0, rpm);
-  Drivetrain.setTurnVelocity(60.0, rpm);
+
+  // "Accept" button
+  Brain.Screen.drawCircle(55, FIELD_LOC_Y + (FIELD_GRAPHIC_HEIGHT / 2), 50, color::green);
+
+  // Set the screen origin to where we want the field grapic. Makes the math easier.
+  Brain.Screen.setOrigin(FIELD_LOC_X, FIELD_LOC_Y);
+
+  Brain.Screen.drawImageFromBuffer(field_250_png, 0, 0, field_250_png_len);
+  // Draw squares for the buttons
+  for (int j = 0; j < NUM_AUTO; j++) {
+    Brain.Screen.drawRectangle(autoHotspots[j].x, autoHotspots[j].y,
+                               autoHotspots[j].width, autoHotspots[j].height,
+                               color::transparent);
+  }
+
+  while (true) {
+    if (Brain.Screen.pressing()) {
+      fingerX = Brain.Screen.xPosition();
+      fingerY = Brain.Screen.yPosition();
+      // Press to the left of the field graphic to accept
+      if (fingerX < -10) {
+        break;
+      }
+      for (int j = 0; j < NUM_AUTO; j++) {
+        if (isPressed(j, fingerX, fingerY)) {
+          autoSelect = j;
+          // Need to reset the origin to print the label under the green button
+          Brain.Screen.setOrigin(0, 0);
+          Brain.Screen.setCursor(11, 1);
+          Brain.Screen.print(autoHotspots[j].label);
+          Brain.Screen.setOrigin(FIELD_LOC_X, FIELD_LOC_Y);
+        }
+      }
+    }
+    wait(20, msec);
+  }
+
+  // Redraw with only the selected routine
+  Brain.Screen.drawImageFromBuffer(field_250_png, 0, 0, field_250_png_len);
+  Brain.Screen.drawRectangle(autoHotspots[autoSelect].x, autoHotspots[autoSelect].y,
+                              autoHotspots[autoSelect].width, autoHotspots[autoSelect].height,
+                              color::transparent);
+
+  Brain.Screen.setOrigin(0, 0);
+  // Clear the temporary label
+  Brain.Screen.setCursor(11, 1);
+  Brain.Screen.print("          ");
+  // Print the selected autonomous on the button
+  Brain.Screen.setCursor(2, 1);
+  Brain.Screen.print(autoHotspots[autoSelect].label);
 }
 
 /*---------------------------------------------------------------------------*/
@@ -147,9 +158,29 @@ void autonomous(void) {
   // ..........................................................................
   // Insert autonomous user code here.
   // ..........................................................................
-  Drivetrain.driveFor(24.0 * 3.0, inches); // Three tiles forward
-  Drivetrain.turnFor(180, degrees);
-  Drivetrain.driveFor(24.0 * 2.0, inches); // Two tiles back
+
+  Drivetrain.setDriveVelocity(50, velocityUnits::pct);
+
+  if (autoSelect == 1) {
+    Drivetrain.arcade(1.0, 0.5); // Drive in an arc
+    Drivetrain.driveFor(24.0 * 3.0, inches);
+    Drivetrain.arcade(1.0, 0.0); // Drive straight
+    Drivetrain.driveFor(24.0 * -1.0, inches); // One tile back
+  }
+  if (autoSelect == 2) {
+    Drivetrain.driveFor(24.0 *  2.0, inches); // Two tiles forward
+    Drivetrain.driveFor(24.0 * -1.0, inches); // One tile back
+  }
+  if (autoSelect == 3) {
+    Drivetrain.arcade(1.0, -0.5); // Drive in an arc
+    Drivetrain.driveFor(24.0 * 3.0, inches);
+    Drivetrain.arcade(1.0, 0.0); // Drive straight
+    Drivetrain.driveFor(24.0 * -1.0, inches); // One tile back
+  }
+  if (autoSelect == 4) {
+    Drivetrain.driveFor(24.0 *  2.0, inches); // Two tiles forward
+    Drivetrain.driveFor(24.0 * -1.0, inches); // One tile back
+  }
 }
 
 /*---------------------------------------------------------------------------*/
